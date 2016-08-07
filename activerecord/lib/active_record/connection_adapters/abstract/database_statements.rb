@@ -239,6 +239,7 @@ module ActiveRecord
       attr_reader :transaction_manager #:nodoc:
 
       delegate :within_new_transaction, :open_transactions, :current_transaction, :begin_transaction, :commit_transaction, :rollback_transaction, to: :transaction_manager
+      delegate :on_commit, :on_rollback, to: :current_transaction
 
       def transaction_open?
         current_transaction.open?
