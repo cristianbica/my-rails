@@ -38,10 +38,18 @@ module ActiveRecord
       def open?; false; end
       def joinable?; false; end
       def add_record(record); end
+
+      def on_commit(&block)
+        raise ArgumentError, "There's no open transaction so this callback won't be called"
+      end
+
+      def on_rollback(&block)
+        raise ArgumentError, "There's no open transaction so this callback won't be called"
+      end
     end
 
     class Transaction #:nodoc:
-      attr_reader :connection, :state, :records, :savepoint_name
+      attr_reader :connection, :state, :records, :savepoint_name, :commit_callbacks, :rollback_callbacks
       attr_writer :joinable
 
       def initialize(connection, options, run_commit_callbacks: false)
@@ -50,6 +58,8 @@ module ActiveRecord
         @records = []
         @joinable = options.fetch(:joinable, true)
         @run_commit_callbacks = run_commit_callbacks
+        @commit_callbacks = []
+        @rollback_callbacks = []
       end
 
       def add_record(record)
@@ -91,6 +101,37 @@ module ActiveRecord
         end
       ensure
         ite.each { |i| i.committed!(should_run_callbacks: false) }
+      end
+
+      def run_commit_callbacks
+        while callback = commit_callbacks.shift
+          if @run_commit_callbacks
+            callback.call(self)
+          else
+            connection.on_commit(callback)
+          end
+        end
+      ensure
+        commit_callbacks.clear
+        rollback_callbacks.clear
+      end
+
+      def run_rollback_callbacks
+        while callback = rollback_callbacks.shift
+          callback.call(self)
+        end
+      ensure
+        commit_callbacks.clear
+        rollback_callbacks.clear
+      end
+
+
+      def on_commit(&block)
+        commit_callbacks << block
+      end
+
+      def on_rollback(&block)
+        rollback_callbacks << block
       end
 
       def full_rollback?; true; end
@@ -146,6 +187,8 @@ module ActiveRecord
       def initialize(connection)
         @stack = []
         @connection = connection
+        @commit_callbacks = []
+        @rollback_callbacks = []
       end
 
       def begin_transaction(options = {})
@@ -173,12 +216,14 @@ module ActiveRecord
 
         transaction.commit
         transaction.commit_records
+        transaction.run_commit_callbacks
       end
 
       def rollback_transaction(transaction = nil)
         transaction ||= @stack.pop
         transaction.rollback
         transaction.rollback_records
+        transaction.run_rollback_callbacks
       end
 
       def within_new_transaction(options = {})
