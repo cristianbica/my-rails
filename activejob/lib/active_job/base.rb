@@ -66,6 +66,7 @@ module ActiveJob #:nodoc:
     include Exceptions
     include Logging
     include Translation
+    prepend TransactionsBehaviour
 
     ActiveSupport.run_load_hooks(:active_job, self)
   end
